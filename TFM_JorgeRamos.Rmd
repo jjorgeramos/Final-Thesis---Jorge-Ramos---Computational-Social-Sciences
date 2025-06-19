@@ -1,0 +1,2468 @@
+---
+title: "Evaluation and Prediction of Productivity in the Garment Industry: A Machine Learning Approach"
+author: "Jorge Ramos Val"
+date: "2025-06-19"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    fig_caption: true
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+# Research problem and context
+
+labour productivity is a key component of economic performance,
+reflecting a company’s ability to produce goods or services efficiently
+while optimizing the use of time, labour, and resources. In low-cost
+manufacturing contexts such as Bangladesh’s textile sector, one of the
+largest and most dynamic in the world, productivity improvements are
+often achieved not through technical innovation, but rather through
+structural precariousness, extended working hours, and limited labour
+protections.
+
+This study aims to explain the factors that determine whether production
+teams reach their expected productivity targets. Using a real-world
+dataset from garment factories in Bangladesh, we adopt a supervised
+classification approach to identify which teams consistently meet or
+fall short of their performance goals. The analysis investigates how
+organizational factors, operational demands, and incentive structures
+combine to influence observed productivity outcomes.
+
+Building on previous studies (Obiedat & Toubasi, 2022; Balla et al.,
+2021; Imran et al., 2019) that have shown machine learning models can
+accurately predict productivity in similar industrial contexts, this
+research takes a step further by focusing on explainability and
+interpretability. While predictive accuracy is important, the primary
+goal here is to generate actionable insights into the organizational and
+motivational dynamics that shape labour productivity in high-pressure
+environments.
+
+To achieve this, we employ a range of advanced machine learning
+models(Random Forest and XGBoost) well-known for their robustness in
+handling complex, non-linear relationships in structured data. XGBoost,
+in particular, has proven highly effective in industrial and business
+analytics due to its ability to manage multicollinearity, capture subtle
+interactions among variables, and provide interpretable measures of
+variable importance via SHAP values. Random Forest is also leveraged for
+its strength in reducing overfitting and providing a baseline for
+ensemble learning. By comparing and interpreting the results of these
+algorithms alongside classical statistical methods, the study offers a
+comprehensive and nuanced perspective on team productivity.
+
+In this context, the research addresses the following question: What
+factors explain why some teams fail to reach expected productivity
+levels in a high-pressure industrial setting? And the hypotheses are:
+
+1. There are notable differences in the organisational, motivational, and operational features between work teams that reach their expected productivity targets and those that fall short.
+
+2. An increased presence of idle time, lack of economic incentives, and excessive workload are each linked to a reduced likelihood of teams achieving their productivity objectives.
+
+
+## Libraries and reproducibility
+To make sure that anyone can easily reproduce this work, all the analyses were carried out in R using a clearly defined set of packages. Before running any code, the script checks which packages are already installed, automatically installs any that are missing, and then loads them all.
+
+```{r, message=FALSE, warning=FALSE, results='hide'}
+#  List of required packages
+required_packages <- c(
+  "tidyverse",
+  "readr",
+  "DataExplorer",
+  "summarytools",
+  "lubridate",
+  "ggplot2",
+  "corrplot",
+  "randomForest",
+  "xgboost",
+  "fitdistrplus",
+  "officer",
+  "flextable",
+  "WDI",
+  "caret",
+  "ggrepel",
+  "car",
+  "pROC",
+  "SHAPforxgboost"
+)
+
+# Check which packages are not installed
+missing_packages <- required_packages[!(required_packages %in% installed.packages()[, "Package"])]
+
+# Install missing packages
+if (length(missing_packages) > 0) {
+  options(repos = c(CRAN = "https://cloud.r-project.org/"))
+  install.packages(missing_packages)
+}
+
+# Load the packages
+invisible(lapply(required_packages, library, character.only = TRUE))
+```
+
+# Data
+
+[Productivity Prediction of Garment Employees [Dataset]. (2020). UCI
+Machine Learning
+Repository.](https://archive.ics.uci.edu/dataset/597/productivity+prediction+of+garment+employees)
+
+Originally used in the study by Imran et al. (2021), the dataset was
+collected from a large garment factory and contains detailed records on
+team-level productivity, organizational characteristics, and operational
+variables, offering a valuable foundation for both predictive modelling
+and explanatory analysis of labour performance in a high-pressure
+manufacturing environment.
+
+Imran et al. (2021) applied a range of machine learning models to
+analyse and predict team productivity, demonstrating that tree-based
+ensemble methods such as Random Forest and Gradient Boosted Trees offer
+the best predictive performance in this context. 
+
+```{r}
+garment_df <- read_csv("garments_productivity.csv")
+```
+
+### Color Palette
+
+To ensure visual consistency, interpretive clarity, and
+professional-quality graphics throughout the study, a customized color
+palette has been defined and adapted to the theme of the analysis. Given
+that the study addresses topics such as labour productivity, incentives,
+and exploitation, warm tones have been predominantly used.
+
+This color choice not only improves the aesthetic coherence of the
+visualizations but also reinforces the analytical narrative, making it
+easier to interpret patterns and hierarchies.
+
+```{r}
+my_palette <- c(
+  "Below Target"   = "#d73027",  
+  "Meets Target"   = "#fc8d59", 
+  "Exceeds Target" = "#fee08b", 
+
+  "No Incentive"   = "#bdbdbd", 
+  "Low"            = "#fdae61",  
+  "Medium"         = "#f46d43", 
+  "High"           = "#d73027",  
+
+  "sweing"         = "#e07b91",  
+  "finishing"      = "#c77d42",  
+  
+
+  "Monday"         = "#fbb4ae",
+  "Tuesday"        = "#fdb462",
+  "Wednesday"      = "#fb8072",
+  "Thursday"       = "#e34a33",
+  "Saturday"       = "#d95f0e",
+  "Sunday"         = "#bd0026"
+)
+
+```
+
+### General Analysis
+
+This section provides an overview of the dataset, including its size,
+variable types, and the presence of missing values. It also describes
+the main distributions of key variables, setting the stage for more
+detailed analyses in the following sections.
+
+#### Dataset Dimensions
+
+```{r}
+dim(garment_df)       
+glimpse(garment_df)  
+```
+
+The dataset consists of 1,197 observations and 15 variables collected
+between 2015-01-01 and 2015-03-11. Among these variables, there are
+features related to expected and actual productivity, the use of
+incentives, overtime hours worked, and the number of workers involved.
+
+#### Types of data
+
+```{r}
+str(garment_df)       
+sapply(garment_df, class)  
+```
+
+The dataset comprises variables of different types, reflecting both
+qualitative and quantitative aspects of the production process.
+Categorical variables such as date, quarter, department, or day of the
+week are stored as text strings, while numerical variables cover a wide
+range of measures, from productivity and efficiency to figures related
+to human resources and operational times.
+
+##### Variables table
+
+```{r}
+
+# Create the summary table with descriptions
+variable_summary <- tibble(
+  Variable = c("date", "day", "quarter", "department", "team_no", "no_of_workers", 
+               "no_of_style_change", "targeted_productivity", "smv", "wip", 
+               "over_time", "incentive", "idle_time", "idle_men", "actual_productivity"),
+  Data_Type = sapply(garment_df, class),  
+  Description = c(
+    "Date variable with MM-DD-YYYY structure.",
+    "Variable containing the name of the days of the week. There are no Fridays.",
+    "Variable that divides the month into four quarters.",
+    "Variable that stores the 2 types of departments: Sewing and Finishing.",
+    "Variable that identifies the team number. A total of 12 teams work per production departments.",
+    "Variable that accumulates the number of workers in each team.",
+    "Variable that stores the number of changes made to a garment throughout the process.",
+    "Variable that records the target production set by the authority for each team for each day.",
+    "Standard Minute Value: Variable representing the time set to complete tasks.",
+    "Work in Progress: Variable that records the number of products to be manufactured, including unfinished items.",
+    "Variable representing the amount of overtime given to each team in minutes.",
+    "Variable representing the amount of money allocated to motivate teams to meet production goals.",
+    "Variable representing the amount of time the production could have been interrupted.",
+    "Variable representing the number of workers who were inactive during production interruptions.",
+    "Predicted variable recording the actual productivity index of the working team."
+  )
+)
+
+variable_summary %>%
+  flextable() %>%
+  set_table_properties(layout = "autofit") %>%
+  compose(j = "Description", value = as_paragraph(Description)) %>%
+  width(j = c(1, 2), width = 1.5) %>% 
+  width(j = 3, width = 3) 
+
+```
+
+It is worth noting that three key variables: **SMV** (Standard Minute
+Value), **WIP** (Work in Progress), and **actual_productivity** were
+constructed by the authors of the original study (Imran et al., 2021)
+using industry-specific formulas. SMV and WIP are based on technical
+calculations widely used in the textile sector, providing the dataset
+with a robust technical foundation. WIP is determined for each
+production stage: for cutting, it is the difference between the number
+of pieces cut and those sent to sewing; in the sewing line, it is
+calculated as the difference between pieces loaded onto the line and
+those completed; for finishing, it reflects the difference between
+pieces received from sewing and those packed. The
+**actual_productivity** variable is also author-defined and represents
+the predicted productivit
+
+#### Missing Values
+
+```{r}
+colSums(is.na(garment_df))     
+plot_missing(garment_df)    
+
+```
+
+Only the variable wip (Work in Progress) contains missing values, with a
+total of 506 missing observations. This variable represents the number
+of items in the production process, including those that are not yet
+completed.
+
+Upon examining the rows with missing wip values, it was observed that
+the associated actual_productivity values display considerable
+variability, ranging from 0.45 to 0.89. it suggests that teams with
+missing wip data are not completely inactive, ruling out the possibility
+that a "0" would accurately reflect their status.
+
+Additionally, imputing these missing values using measures such as the
+median could distort the original distribution of wip, artificially
+accumulating observations at a single point. Such an approach would be
+particularly harmful in a classification context, as it could introduce
+bias and undermine the model's predictive capacity.
+
+For these reasons, a more robust imputation strategy was chosen:
+predicting the missing wip values using a regression model that
+leverages other available variables as predictors. This approach helps
+preserve the natural variability and structure of the data. Furthermore,
+an indicator variable (wip_missing) was added to flag which observations
+were imputed, allowing the final model to account for this condition and
+correct for potential biases.
+
+This solution aims to strike a balance between retaining relevant
+information and avoiding the introduction of noise or excessive
+simplifications in the modelling process.
+
+```{r}
+# New variable 
+garment_df$wip_missing <- is.na(garment_df$wip)
+```
+
+##### Imputation
+
+```{r}
+set.seed(123)
+
+# Divide in train y test
+train_data <- garment_df %>% filter(!is.na(wip))
+test_data <- garment_df %>% filter(is.na(wip))
+
+# Selection of predictors
+predictors <- c("team", "targeted_productivity", "smv", "over_time", "incentive",
+                "idle_time", "idle_men", "no_of_style_change", "no_of_workers",
+                "actual_productivity")
+
+# Random Forest
+rf_model <- randomForest(
+  x = train_data[, predictors],
+  y = train_data$wip,
+  ntree = 100
+)
+
+## RF predictions
+rf_pred <- predict(rf_model, newdata = test_data[, predictors])
+
+# XGBoost 
+dtrain <- xgb.DMatrix(data = as.matrix(train_data[, predictors]), label = train_data$wip)
+dtest <- xgb.DMatrix(data = as.matrix(test_data[, predictors]))
+
+xgb_model <- xgboost(
+  data = dtrain,
+  nrounds = 100,
+  objective = "reg:squarederror",
+  verbose = 0
+)
+
+## XGBoost predictions
+xgb_pred <- predict(xgb_model, dtest)
+
+# Since XGBoost can predict negative values, I am going to forbid that possibility
+xgb_pred <- pmax(xgb_pred, 0)  
+
+# COMPARISON between original distribution, RF and XGBoost:
+# Obtain the original values 
+wip_original <- garment_df$wip[!is.na(garment_df$wip)]
+
+# Merge the imputed values with the original ones
+all_wip <- c(wip_original, rf_pred, xgb_pred)
+
+# Create a vector with the methods
+methods <- c(rep("Original WIP", length(wip_original)),
+             rep("Random Forest Imputed", length(rf_pred)),
+             rep("XGBoost Imputed", length(xgb_pred)))
+
+# Create dataframe long
+long_df <- data.frame(WIP = all_wip, Method = methods)
+
+# Plot the density graph
+ggplot(long_df, aes(x = WIP, fill = Method)) +
+  geom_density(alpha = 0.4) +
+  theme_minimal() +
+  labs(
+    title = "Density Comparison: Original WIP vs Imputed (Random Forest & XGBoost)",
+    x = "WIP",
+    y = "Density"
+  ) +
+  scale_fill_manual(values = c("grey", "#f46d43", "#d73027")) +
+  xlim(0, 4500) 
+
+
+```
+
+Comparing the imputed distributions with the original WIP values, the
+Random Forest imputation method demonstrates a greater ability to
+replicate the shape and dispersion of the original data. Therefore,
+Random Forest is selected as the most suitable imputation method to
+preserve the integrity of the variable.
+
+```{r}
+# Finally, imputation the NA with RF predictions
+garment_df$wip[is.na(garment_df$wip)] <- rf_pred
+```
+
+#### Distribution of the Variables
+
+```{r}
+# General distribution
+summary(garment_df)                 
+descr(garment_df, stats = "common")  
+
+# Convert to long format for numeric columns only
+numeric_vars_long <- garment_df %>%
+  dplyr::select(where(is.numeric)) %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "value")
+
+# Create the faceted histograms
+ggplot(numeric_vars_long, aes(x = value)) +
+  geom_histogram(fill = "#f46d43", color = "white", bins = 30, alpha = 0.8) +
+  facet_wrap(~ variable, scales = "free", ncol = 3) +  
+  theme_minimal() +
+  labs(
+    title = "Distribution of Numeric Variables",
+    x = "Value",
+    y = "Frequency"
+  )
+
+# Plot with log-transformation
+ggplot(numeric_vars_long, aes(x = value)) +
+  geom_histogram(fill = "#e07b91", color = "white", bins = 30, alpha = 0.8) +
+  geom_density(aes(y = ..density..), color = "black", size = 0.5) +
+  facet_wrap(~ variable, scales = "free", ncol = 3) +
+  scale_x_continuous(trans = "pseudo_log") +  
+  theme_minimal() +
+  labs(
+    title = "Distribution",
+    x = "Value (log scale)",
+    y = "Frequency / Density"
+  )
+```
+
+The graphical and primary analysis of the dataset reveals high
+heterogeneity in the variables studied, with notable differences in
+their distributions and values. The team variable, although numeric,
+acts as a categorical identifier, displaying a fairly balanced
+distribution across the twelve teams (mean: 6.43, median: 6.00, range:
+1–12). It is important to note that, although the plot displays teams
+numbered from 1 to 12, it is important to note that these are not unique
+teams across the entire factory; rather, each department (finishing and
+sewing) maintains its own set of 12 teams. Thus, the same team number in
+different departments does not necessarily refer to the same group of
+workers.
+
+Regarding productivity, targeted_productivity is relatively uniform,
+ranging from 0.07 to 0.80 (mean: 0.73, median: 0.75), indicating that
+the targets set for teams are consistent throughout the dataset. It is
+important to note that the actual_productivity variable, as defined in
+the original study, is a computed index rather than a directly measured
+outcome. This index is inherently more variable than the target, with
+values spanning from 0.23 to 1.12 (mean: 0.74, median: 0.77). Such
+variability reflects genuine differences in team performance across
+different periods. A value of 1 indicates that the team precisely met
+the expected productivity target, while values greater than 1 signify
+over-productivity, or teams that have exceeded their goals. Conversely,
+values below 1 indicate underperformance.
+
+Workload, as measured by smv (Standard Minute Value), ranges widely from
+2.90 to 54.56 minutes (mean: 15.06, median: 15.26), capturing the
+diverse complexity of tasks. The over_time and incentive variables
+display highly right-skewed distributions: over_time ranges from 0 to
+25,920 minutes (mean: 4,567, median: 3,960), and incentive ranges from 0
+to 3,600 (mean: 38.2, median: 0), illustrating that most workers do not
+receive incentives, while a few receive substantial amounts.
+
+Concerning inefficiencies and team structure, both idle_time and
+idle_men are heavily zero-inflated (mean idle_time: 0.73, median: 0;
+mean idle_men: 0.37, median: 0), indicating that most teams rarely
+experience idleness, but when they do, it can be significant (maximum
+idle_time: 300, maximum idle_men: 45). The no_of_style_change variable
+is also mostly zero (mean: 0.15, max: 2), while no_of_workers varies
+broadly from 2 to 89 (mean: 34.6, median: 34), showing large differences
+in team sizes.
+
+The wip (Work in Progress) variable, after successful imputation, now
+ranges from 7 to 23,122 (mean: 1,137, median: 992), capturing
+substantial variability in the volume of ongoing work across teams and
+time periods.
+
+Faceted histograms, both in their original and log-transformed forms,
+reinforce the diversity and dispersion in the data: some variables
+cluster within narrow ranges, while others display pronounced outliers
+and skewness. These graphical representations offer a clear view of the
+density and frequency of values, establishing a robust foundation for
+subsequent analytical stages such as feature selection and explanatory
+modelling.
+
+### Bivariate and Relationship Analysis
+
+In this section, I will delve deeper into the relationships between the
+different variables, examining how they interact and correlate with each
+other. The main focus will be on exploring how these variables influence
+or are associated with both actual productivity and targeted
+productivity, which are central to the study. By understanding these
+relationships, we can begin to identify which factors have the greatest
+impact on productivity levels, uncover potential patterns, and inform
+the next stages of modelling and analysis.
+
+#### Evolution
+
+First, we will examine the evolution of productivity, assessing whether
+any trend or seasonal pattern emerges. This analysis will provide a
+broader temporal context for understanding the fluctuations in both
+actual and targeted productivity over time.
+
+```{r}
+# Convert the date into MDY model
+garment_df <- garment_df %>%
+  mutate(date = mdy(date))  
+
+```
+
+```{r}
+
+#Daily Productivity Evolution
+df_daily <- garment_df %>%
+  group_by(date) %>%
+  summarise(mean_productivity = mean(actual_productivity, na.rm = TRUE))
+ggplot(df_daily, aes(x = date, y = mean_productivity)) +
+  geom_line(color = "#fc8d59", alpha = 0.7) +
+  geom_smooth(method = "loess", se = FALSE, color = "#d73027") +
+  labs(
+    title = "Daily Mean Productivity Evolution",
+    x = "Date", y = "Mean Actual Productivity"
+  ) +
+  theme_minimal()
+
+```
+
+The daily evolution of actual productivity shows a relatively stable
+trend throughout the first half of the analyzed period, with minor
+fluctuations and some notable peaks. However, from early February
+onwards, there is a progressive decline coinciding with the absence of
+the high values seen in previous weeks. This downward trend continues
+until late February, when productivity reaches its lowest point in the
+period. From March onwards, a moderate recovery can be observed,
+although the daily mean productivity does not fully return to the
+initial high levels. The smoothed trend line highlights these changes
+and reveals the presence of short cycles and day-to-day variability.
+
+```{r}
+# Mean Actual vs Target productivity 
+df_long_mean <- garment_df %>%
+  dplyr::select(date, actual_productivity, targeted_productivity) %>%
+  pivot_longer(cols = c(actual_productivity, targeted_productivity),
+               names_to = "type", values_to = "value") %>%
+  group_by(date, type) %>%
+  summarise(mean_value = mean(value, na.rm = TRUE), .groups = "drop")
+
+ggplot(df_long_mean, aes(x = date, y = mean_value, color = type)) +
+  geom_line(alpha = 0.7) +
+  geom_smooth(se = FALSE) +
+  scale_color_manual(
+    values = c(
+      "actual_productivity" = "#d73027",      
+      "targeted_productivity" = "#c77d42"       
+    ),
+    labels = c("Actual Productivity", "Targeted Productivity")
+  ) +
+  labs(
+    title = "Daily Mean: Actual vs Target Productivity",
+    x = "Date", y = "Mean Productivity", color = "Type"
+  ) +
+  theme_minimal()
+
+```
+
+The joint analysis of actual and target productivity shows that both
+variables follow similar trends over time, but with marked differences
+in volatility. Actual productivity demonstrates greater fluctuations,
+especially in the first third of the period, with several days where it
+temporarily exceeds the target productivity. Subsequently, from February
+onwards, actual productivity falls below the set target and maintains a
+constant gap for several weeks, before beginning a modest recovery in
+March. In contrast, target productivity remains much more stable and
+linear, reflecting its planned and less reactive nature.
+
+```{r}
+# Weekly Productivity Trend
+summary_week <- garment_df %>%
+  mutate(week = floor_date(date, "week")) %>%
+  group_by(week) %>%
+  summarise(weekly_prod = mean(actual_productivity, na.rm = TRUE))
+
+ggplot(summary_week, aes(x = week, y = weekly_prod)) +
+  geom_line(color = "#fdae61") +        
+  geom_smooth(method = "loess", se = FALSE, color = "#d73027") + 
+  labs(
+    title = "Weekly Productivity Trend",
+    x = "Week", y = "Average Productivity"
+  ) +
+  theme_minimal()
+
+```
+
+Weekly aggregation of mean productivity reinforces the patterns observed
+at the daily level: in the initial weeks, productivity remains
+relatively high and stable. However, from February onwards, there is a
+clear downward trend, reaching its lowest point in mid-February. This
+negative trend partially reverses in early March, although the recovery
+is moderate. Weekly comparison allows for a clearer visualization of
+cycles and structural changes in productivity evolution, filtering out
+daily volatility.
+
+```{r}
+# Average Productivity by Day
+garment_df %>%
+  group_by(day) %>%
+  summarise(avg_prod = mean(actual_productivity, na.rm = TRUE)) %>%
+  ggplot(aes(x = factor(day, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Saturday", "Sunday")),
+             y = avg_prod, fill = day)) +
+  geom_col() +
+  labs(title = "Average Productivity by Day of the Week",
+       x = "Day", y = "Average Productivity") +
+  scale_fill_manual(values = my_palette) +
+  theme_minimal()
+```
+
+When analyzing mean productivity by day of the week, there is notable
+consistency across workdays, with minimal variations between different
+days. No significant drops are associated with any specific day. The
+absence of data for Fridays stands out, suggesting that the factory
+might not operate on that day, or simply that no records are available
+for Fridays.
+
+Taken together, the temporal analyses indicate that actual productivity
+is more volatile than target productivity, with a marked downward cycle
+starting in February and a gradual recovery in March. Target
+productivity serves as a stable benchmark, whereas actual performance is
+more variable, possibly affected by operational, seasonal, or internal
+organizational factors. The stability of productivity across days of the
+week, and the absence of data for Fridays, reinforce the importance of
+contextualizing the results within the factory’s work calendar.
+
+#### Organizational factors
+
+This part examines how organizational structure and departmental
+differences influence productivity outcomes. By comparing departments
+and analyzing team-level metrics, the analysis highlights the impact of
+team size, work organization, and operational consistency on
+performance.
+
+Difference between department:
+
+```{r}
+#Distribution of the Difference between actual and targeted productivity by department
+garment_df %>%
+  mutate(diff_productivity = actual_productivity - targeted_productivity) %>%
+  ggplot(aes(x = diff_productivity, fill = department)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of the Difference Between Actual and Targeted Productivity",
+       x = "Difference (actual - target)", y = "Density") +
+  scale_fill_manual(values = my_palette) +
+  theme_minimal()
+
+```
+
+
+```{r}
+#Summary and table per department
+department_summary <- garment_df %>%
+  group_by(department) %>%
+  summarise(
+    avg_productivity = mean(actual_productivity, na.rm = TRUE),
+    sd_productivity = sd(actual_productivity, na.rm = TRUE),
+    avg_team_size = mean(no_of_workers, na.rm = TRUE),
+    avg_overtime = mean(over_time, na.rm = TRUE),
+    avg_idle_time = mean(idle_time, na.rm = TRUE),
+    avg_incentive = mean(incentive, na.rm = TRUE),
+    avg_smv = mean(smv, na.rm = TRUE),
+    n_obs = n()
+  ) %>% 
+  mutate(across(where(is.numeric), ~ round(.x, 2)))
+
+department_table <- flextable(department_summary) %>%
+  set_header_labels(
+    department = "Department",
+    avg_productivity = "Avg. Productivity",
+    sd_productivity = "SD Productivity",
+    avg_team_size = "Avg. Team Size",
+    avg_overtime = "Avg. Overtime",
+    avg_idle_time = "Avg. Idle Time",
+    avg_incentive = "Avg. Incentive",
+    avg_smv = "Avg. SMV",
+    n_obs = "N Obs."
+  ) %>%
+  add_header_lines("Department Comparative Table") %>%    
+  bold(i = 1, part = "header") %>%                         
+  color(i = 1, part = "header", color = "black") %>%       
+  autofit() %>%
+  theme_box() %>%
+  align(align = "center", part = "all")
+
+
+department_table
+```
+
+The combined analysis of productivity and the distribution of
+differences between actual and targeted productivity reveals distinct
+patterns across the two departments.
+
+The sewing department displays a slightly lower average productivity
+level compared to finishing (0.72 vs. 0.75), but with less variability
+in its results, the standard deviation of 0.15 vs. 0.20. This is clearly
+illustrated in the density plot, where the distribution of the
+difference between actual and targeted productivity is sharply centered
+around zero for sewing. Such concentration suggests that, in most cases,
+actual performance closely matches the set targets. Additionally, the
+sewing department operates with substantially larger teams (an average
+of 52 workers versus 10 in finishing), more overtime hours, and higher
+average incentives, indicating a more homogeneous and stable work
+organization. This structural uniformity likely contributes to the
+reduced variability observed in their productivity outcomes.
+
+In contrast, the finishing department achieves a marginally higher mean
+productivity, but with significantly greater dispersion. The
+distribution of the productivity difference for finishing is broader and
+flatter, indicating a wider range of outcomes relative to targets. This
+greater variability may reflect the inherently more variable or less
+predictable nature of finishing tasks, or could point to less
+standardized workflows.
+
+Overall, these results suggest that working conditions and
+organizational structure directly influence productivity variability.
+While sewing appears to operate within a more mechanized and less
+variable framework, finishing faces greater challenges in maintaining
+consistent and efficient output. 
+
+Difference between teams:
+
+```{r}
+# Average productivity by team
+team_dept_summary <- garment_df %>%
+  group_by(department, team) %>%
+  summarise(
+    avg_productivity = mean(actual_productivity, na.rm = TRUE),
+    sd = sd(actual_productivity, na.rm = TRUE),
+    n = n()
+  )
+
+ggplot(team_dept_summary, aes(x = factor(team), y = avg_productivity, fill = department)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = my_palette) +
+  labs(
+    title = "Average Productivity by Team and Department",
+    x = "Team",
+    y = "Average Productivity",
+    fill = "Department"
+  ) +
+  theme_minimal()
+```
+
+The graph illustrates notable differences in average productivity both
+between teams and across departments. Teams 1, 3, and 12 consistently
+achieve the highest productivity levels, often exceeding 0.8 across both
+finishing and sewing departments. Conversely, teams 6 and 7 display the
+lowest average productivity, typically around or below 0.7, indicating
+potential areas where targeted interventions in performance,
+organization, or resource management may be needed.
+
+For most team numbers the finishing department tends to have slightly
+higher average productivity than the sewing department. However, the
+productivity gap between departments varies depending on the team,
+suggesting that not all differences can be explained solely by
+departmental factors. Some teams within each department perform
+significantly better than others, highlighting substantial internal
+variability.
+
+```{r}
+summary_by_team_dept <- garment_df %>%
+  group_by(department, team) %>%
+  summarise(
+    avg_productivity = mean(actual_productivity, na.rm = TRUE),
+    sd_productivity = sd(actual_productivity, na.rm = TRUE),
+    avg_team_size = mean(no_of_workers, na.rm = TRUE),
+    avg_overtime = mean(over_time, na.rm = TRUE),
+    avg_idle_time = mean(idle_time, na.rm = TRUE),
+    avg_incentive = mean(incentive, na.rm = TRUE),
+    avg_smv = mean(smv, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% 
+  mutate(across(where(is.numeric), ~ round(.x, 2)))
+
+team_dept_table <- flextable(summary_by_team_dept) %>%
+  set_header_labels(
+    department = "Department",
+    team = "Team",
+    avg_productivity = "Avg. Productivity",
+    sd_productivity = "SD Productivity",
+    avg_team_size = "Avg. Team Size",
+    avg_overtime = "Avg. Overtime",
+    avg_idle_time = "Avg. Idle Time",
+    avg_incentive = "Avg. Incentive",
+    avg_smv = "Avg. SMV"
+  ) %>%
+  add_header_lines("Team and Department Comparative Table") %>%
+  bold(i = 1, part = "header") %>%
+  color(i = 1, part = "header", color = "black") %>%
+  autofit() %>%
+  theme_box() %>%
+  align(align = "center", part = "all")
+
+team_dept_table
+```
+
+The summary statistics by team and department reveal substantial
+heterogeneity in productivity, team size, workload, and incentive
+structures across the factory. Notably, teams within the finishing
+department are generally much smaller, typically comprising 9 to 13
+workers, while teams in the sewing department are significantly larger,
+often exceeding 50 workers. Despite this difference in scale, the
+highest average productivity levels are not exclusively found in either
+department, but rather vary between specific teams.
+
+Among both departments, the most productive teams tend to combine high
+or intermediate incentive levels, negligible idle time, and an effective
+balance between team size and task complexity (SMV). These teams are
+able to maintain high average productivity, which suggests a positive
+effect of adequate motivation and organizational efficiency.
+
+Conversely, lower-performing teams often have lower average productivity
+despite sometimes having substantial team sizes or working longer
+overtime hours. These teams are also characterized by lower incentive
+averages, occasional idle time, and, in some cases, less complex tasks.
+This pattern indicates that neither increasing team size nor
+accumulating overtime alone is sufficient to drive productivity gains;
+rather, the alignment of incentives, efficient organization, and
+minimizing idle time appear to be more influential.
+
+```{r}
+# Count unique days per team and department
+team_days <- garment_df %>%
+  distinct(department, team, date) %>%
+  count(department, team, name = "n_days")
+
+# Check if all teams in each department appear the same number of days
+check_equal_days <- team_days %>%
+  group_by(department) %>%
+  summarise(all_equal = length(unique(n_days)) == 1)
+
+print(check_equal_days)
+
+# Show teams with fewer days, if any
+if (any(!check_equal_days$all_equal)) {
+  cat("❌ Some teams are present fewer days than others within at least one department.\n")
+  team_days %>%
+    group_by(department) %>%
+    arrange(n_days, .by_group = TRUE) %>%
+    print()
+} else {
+  cat("✅ All teams are present the same number of days within each department.\n")
+}
+
+```
+
+The results reveal that not all teams have the same temporal coverage
+within the dataset. In the finishing department, the number of unique
+days on which each team appears ranges from as few as 29 (team 11) to 53
+(team 8), indicating substantial variation in the data available for
+each group. Similarly, in the sewing department, most teams are present
+on 55 to 59 days, but there is still some variation, no team is
+represented on every possible day.
+
+#### Productivity gap
+
+We are going to focus on the difference between actual productivity and
+the target productivity:
+
+```{r}
+# Create a productivity gap variable and performance groups
+garment_df <- garment_df %>%
+  mutate(
+    productivity_gap = actual_productivity - targeted_productivity,
+    perf_group = case_when(
+      productivity_gap < -0.05 ~ "Below Target",
+      abs(productivity_gap) <= 0.05 ~ "Meets Target",
+      productivity_gap > 0.05 ~ "Exceeds Target"
+    ),
+    perf_group = factor(perf_group, levels = c("Below Target", "Meets Target", "Exceeds Target")) 
+  )
+
+# Compare factors by performance group
+summary_perf <- garment_df %>%
+  group_by(perf_group) %>%
+  summarise(
+    avg_workers = mean(no_of_workers, na.rm = TRUE),
+    avg_overtime = mean(over_time, na.rm = TRUE),
+    avg_idle = mean(idle_time, na.rm = TRUE),
+    avg_incentive = mean(incentive, na.rm = TRUE)
+  )%>% 
+  mutate(across(where(is.numeric), ~ round(.x, 2)))
+
+perf_table <- flextable(summary_perf) %>%
+  set_header_labels(
+    perf_group = "Performance Group",
+    avg_workers = "Avg. Team Size",
+    avg_overtime = "Avg. Overtime",
+    avg_idle = "Avg. Idle Time",
+    avg_incentive = "Avg. Incentive"
+  ) %>%
+  add_header_lines("Comparative Table by Performance Group") %>%
+  bold(i = 1, part = "header") %>%
+  color(i = 1, part = "header", color = "black") %>%
+  autofit() %>%
+  theme_box() %>%
+  align(align = "center", part = "all")
+
+perf_table
+```
+
+```{r}
+# Average overtime by performance group
+ggplot(summary_perf, aes(x = perf_group, y = avg_overtime, fill = perf_group)) +
+  geom_col(alpha = 0.8) +
+  labs(
+    title = "Average Overtime by Performance Group",
+    x = "Performance Group", y = "Average Overtime"
+  ) +
+  scale_fill_manual(values = my_palette) +
+  theme_minimal()
+```
+
+Teams that exceed their productivity target are part of relatively small
+teams (averaging 30 members), register no idle time (0 minutes), and
+receive the highest average incentives (49.9 BDT). This suggests a
+strategy focused on efficiency and direct rewards for performance.
+
+In contrast, those who do not meet the target belong to even smaller
+teams (24.8 members), exhibit the highest level of idle time (1.32
+minutes), and receive very few incentives (10.9 BDT), which may reflect
+less favorable working conditions or a lack of structural motivation.
+
+The group that meets the target works in significantly larger teams
+(43.7 members), performs more overtime on average (5,380 minutes), and
+receives moderate incentives (42.6 BDT). This group appears to operate
+under a logic of meeting goals through volume and time pressure rather
+than through genuine efficiency or bonus incentives.
+
+```{r}
+# ANOVA test
+anova_result <- aov(actual_productivity ~ perf_group, data = garment_df)
+summary(anova_result)
+
+# For comparison
+TukeyHSD(anova_result)
+```
+
+The ANOVA reveals significant differences in mean productivity across
+the performance groups: Below Target, Meets Target, and Exceeds Target
+(p-value \< 2e-16). Post hoc comparisons confirm that each of these
+groups differs significantly from the others, with the largest
+difference between the Below Target and Exceeds Target groups. These
+results indicate that actual productivity increases as teams approach or
+exceed their targets.
+
+```{r}
+#Relationship between number of workers and productivity
+ggplot(garment_df, aes(x = no_of_workers, y = targeted_productivity)) +
+  geom_point(alpha = 0.3, color = "#fdae61") +
+  geom_smooth(method = "lm", color = "#d73027") +
+  labs(title = "Team Size vs Targeted Productivity",
+       x = "Number of Workers", y = "Targeted Productivity") +
+  theme_minimal()
+```
+
+The graph shows a slight negative relationship between team size
+(no_of_workers) and targeted productivity (targeted_productivity). The
+regression line suggests that, as the number of workers increases, the
+expected productivity tends to decrease slightly.
+
+```{r}
+target_week <- garment_df %>%
+  mutate(week = floor_date(date, "week")) %>%
+  group_by(week) %>%
+  summarise(mean_target = mean(targeted_productivity, na.rm = TRUE))
+
+ggplot(target_week, aes(x = week, y = mean_target)) +
+  geom_line(color = "#fdae61") +
+  geom_smooth(se = FALSE, color = "#d73027") +
+  labs(title = "Weekly Target Productivity Trend",
+       x = "Week", y = "Target Productivity") +
+  theme_minimal()
+```
+
+This graph shows the weekly trend in targeted productivity. The
+following observations stand out:
+
+-   At the beginning of the period (early January), the targets were
+    relatively high (around 0.77).
+
+-   Subsequently, there is a sustained decline until mid-January,
+    followed by a slight recovery and stabilization in February.
+
+-   At the beginning of March, the targets again decrease slightly.
+
+-   This pattern suggests that the company adjusts its productivity
+    goals over time, possibly based on observed performance, market
+    conditions, or workforce changes.
+
+#### Extratime and incentive
+
+Now, the relationship between Over Time per worker and productivity
+
+```{r}
+garment_df <- garment_df %>%
+  mutate(overtime_per_worker = over_time / no_of_workers)
+
+# Productivity vs. Overtime per worker
+ggplot(garment_df, aes(x = overtime_per_worker, y = actual_productivity)) +
+  geom_point(alpha = 0.4, color = "#fdae61") +  
+  geom_smooth(method = "loess", color = "#d73027") +   
+  labs(
+    title = "Effect of Overtime on Productivity",
+    x = "Overtime per Worker (minutes)", 
+    y = "Actual Productivity"
+  ) +
+  theme_minimal()
+
+```
+
+The graph shows a non-linear relationship between overtime per worker
+and actual productivity. Initially, as the overtime per worker
+increases, productivity tends to rise slightly, reaching its peak around
+250–300 minutes per worker. However, beyond that point, performance
+tends to stabilize or even decrease slightly.
+
+In conclusion, a moderate level of overtime may improve productivity,
+but excessive overtime appears to have a limited or even negative
+impact.
+
+For the incentive, we are going to divide the teams in groups.
+
+```{r}
+# Create incentive groups
+garment_df <- garment_df %>%
+  mutate(incentive_group = case_when(
+    incentive == 0 ~ "No Incentive",
+    incentive <= quantile(incentive[incentive > 0], 0.33, na.rm = TRUE) ~ "Low",
+    incentive <= quantile(incentive[incentive > 0], 0.66, na.rm = TRUE) ~ "Medium",
+    TRUE ~ "High"
+  ),
+  incentive_group = factor(incentive_group, levels = c("No Incentive", "Low", "Medium", "High"))
+  )
+
+# Compare average productivity by incentive group
+garment_df %>%
+  group_by(incentive_group) %>%
+  summarise(
+    avg_productivity = mean(actual_productivity, na.rm = TRUE),
+    count = n()
+  )
+
+# Boxplot of productivity by incentive group
+ggplot(garment_df, aes(x = incentive_group, y = actual_productivity, fill = incentive_group)) +
+  geom_boxplot() +
+  labs(title = "Productivity by Incentive Level",
+       x = "Incentive Group", y = "Actual Productivity") +
+  scale_fill_manual(values = my_palette) +
+  theme_minimal()
+
+
+```
+
+Economic incentives are clearly associated with better performance: the
+higher the incentive, the higher the average productivity.
+Interestingly, those who do not receive incentives have a higher average
+productivity than the low-incentive group but also show greater
+variability, including cases of very low performance.
+
+However, we can do a t test to prove the relation:
+
+```{r}
+garment_df$has_incentive <- ifelse(garment_df$incentive > 0, "Yes", "No")
+t.test(actual_productivity ~ has_incentive, data = garment_df)
+
+```
+
+There is a statistically significant difference in productivity between
+teams that do not receive incentives (0.712) and those who do (0.758).
+Teams who receive incentives exhibit significantly higher productivity
+compared to those without incentives.
+
+## Target variable
+
+To carry out the classification exercise, the target variable
+**`achieves_target`** is defined as a binary indicator reflecting
+whether the work teams manage to reach or exceed the expected
+productivity. This classification allows for an explanatory approach, as
+it seeks to identify the factors associated with productive success.
+
+To define the variable, a threshold of ± 0.05 was set for the difference
+between actual and targeted productivity. This margin is considered
+reasonable for determining whether a team has effectively met the
+expected productivity level, as small deviations may arise from normal
+operational fluctuations, measurement errors, or exceptional
+circumstances beyond the team’s control. Thus, teams whose actual
+productivity is less than 0.05 points below the target are classified as
+"achieving the target". This approach avoids penalizing cases where the
+difference is minimal and operationally insignificant, resulting in a
+more realistic and robust analysis of productive success.
+
+```{r}
+# Create the binary variable 
+garment_df <- garment_df %>%
+  mutate(
+    productivity_gap = actual_productivity - targeted_productivity,
+    achieves_target = ifelse(productivity_gap >= -0.05, 1, 0)
+  )
+
+
+# Frequency table
+table(garment_df$achieves_target)
+
+# Percentage of each group
+prop.table(table(garment_df$achieves_target)) * 100
+
+# Graph
+ggplot(garment_df, aes(x = achieves_target, fill = factor(achieves_target))) +
+  geom_bar(alpha = 0.8) +
+  labs(
+    title = "Distribution of the target variable",
+    x = "Achieves expected productivity?",
+    y = "Number of observations"
+  ) +
+  scale_fill_manual(
+    values = c("0" = "#e45756", "1" = "#fdae61"),
+    labels = c("No", "Yes"),
+    name = "Achieves Target"
+  ) +
+  theme_minimal()
+
+```
+
+The analysis of the objective variable reveals that 77.7% of the teams
+successfully achieved the expected productivity level, while 22.3% did
+not meet the target. This significant difference suggests that most
+teams were able to adapt their performance to reach the expected goals,
+although there is a notable group of teams whose productivity remained
+below expectations.
+
+Now we can proceed to do an exploratory analysis of this variable:
+
+```{r}
+# T-test
+t_test_workers <- t.test(no_of_workers ~ achieves_target, data = garment_df)
+print(t_test_workers)
+
+# Boxplots for Incentive
+ggplot(garment_df, aes(x = factor(achieves_target), y = incentive, fill = factor(achieves_target))) +
+  geom_boxplot(alpha = 0.7) +
+  labs(
+    title = "Incentives by Achieves Target Group",
+    x = "Achieves Target",
+    y = "Incentives"
+  ) +
+  scale_fill_manual(
+    values = c("0" = "#e45756", "1" = "#fdae61"),
+    labels = c("No", "Yes"),
+    name = "Achieves Target"
+  ) +
+  theme_minimal()
+
+# Boxplots for Over Time 
+ggplot(garment_df, aes(x = factor(achieves_target), y = over_time, fill = factor(achieves_target))) +
+  geom_boxplot(alpha = 0.7) +
+  labs(
+    title = "Overtime by Achieves Target Group",
+    x = "Achieves Target",
+    y = "Overtime"
+  ) +
+  scale_fill_manual(
+    values = c("0" = "#e45756", "1" = "#fdae61"),
+    labels = c("No", "Yes"),
+    name = "Achieves Target"
+  ) +
+  theme_minimal()
+```
+
+The t-test reveals a highly significant difference in the average number
+of workers between the two groups. Specifically, teams that met or
+exceeded their productivity targets had, on average, 37.4 workers,
+compared to 24.9 workers for teams that did not achieve their targets.
+This suggests that larger team sizes are strongly associated with
+meeting productivity expectations. Furthermore, these boxplots suggest
+that both incentives and overtime play a role in achieving productivity
+targets, but also highlight substantial variability within each group.
+
+### Correlations
+
+Correlation Analysis to understand the relationship between numeric
+variables and productivity.
+
+```{r}
+
+# Select only numeric variables
+num_vars <- garment_df %>%
+  dplyr::select(where(is.numeric)) %>%
+  drop_na()  
+
+# Compute correlation matrix
+cor_matrix <- cor(num_vars, method = "spearman" , use = "complete.obs")
+
+# Plot correlation matrix 
+corrplot(cor_matrix,
+         method = "color",
+         type = "upper",
+         tl.cex = 0.62,             
+         number.cex = 0.45,         
+         addCoef.col = "black", 
+         title = "Correlation Matrix",
+         mar = c(0, 0, 2, 0),      
+         diag = FALSE)
+```
+
+The correlation matrix reveals important relationships among the numeric
+variables in the dataset. Notably, there is a strong positive
+correlation between idle_time (downtime) and idle_men (number of idle
+workers during downtime), which is expected: the longer the downtime,
+the more workers are left inactive.
+
+Both of these variables show a negative correlation with
+actual_productivity, indicating that production stoppages and staff
+inactivity have a negative impact on performance.
+
+We also see a positive correlation between incentive and over_time,
+suggesting that teams who work more overtime tend to receive higher
+incentives. However, the correlation between over_time and
+actual_productivity is weak, reinforcing the idea that simply working
+longer hours does not necessarily lead to higher productivity.
+
+On the other hand, the variable productivity_gap, which measures the
+difference between actual and targeted productivity, shows a positive
+correlation with incentives and team size, and a negative correlation
+with interruptions. This suggests that larger and better incentivized
+teams with fewer interruptions are more likely to exceed their
+productivity targets.
+
+Given the very high correlation between idle_time and idle_men (close to
+1), keeping both variables in the analysis may cause multicollinearity
+problems in further steps.
+Since they both represent downtime and are closely related, we should
+remove one to avoid redundancy.
+
+-   Both variables capture the same phenomenon: downtime.
+
+-   idle_time measures the duration of the downtime in minutes, while
+    idle_men counts the number of idle workers during that time.
+
+-   idle_time is a more direct, continuous measure of inefficiency,
+    while idle_men depends on the size of the team and may introduce
+    more noise.
+
+Therefore, it is more robust and informative to keep idle_time and
+remove idle_men for subsequent analyses.
+
+```{r}
+garment_df <- garment_df %>%
+  dplyr::select(-idle_men)
+```
+
+### Bangladesh
+
+To empirically contextualize the labour exploitation index proposed in
+this study, macroeconomic and labour indicators at the country level are
+incorporated. The aim is to analyse the structural evolution of
+Bangladesh in terms of recent labour conditions and productivity (since
+1991/2008), and to compare it with other economies in the Global South
+and industrialized countries.
+
+This approach allows for:
+
+-   Contrasting whether increases in productivity have been accompanied
+    by improvements in labour conditions.
+
+-   Reinforcing the relevance of the custom-built metrics (exploitation
+    index, idle ratio, surplus rate).
+
+-   Demonstrating that, despite economic growth, conditions linked to
+    precarity and exploitation persist.
+
+```{r}
+
+countries <- c("BGD", "IND", "PAK", "VNM", "CHN",  
+               "DEU", "USA", "FRA", "ESP", "ITA")  
+
+# 1. ECONOMIC PRODUCTIVITY 
+gdp_productivity <- WDI(
+  country = countries,
+  indicator = "SL.GDP.PCAP.EM.KD",  # GDP per employed person (constant 2017 US$)
+  start = 1991,
+  end = 2023
+)
+
+# 2. VULNERABLE EMPLOYMENT (% of total employment)
+vulnerable_employment <- WDI(
+  country = countries,
+  indicator = "SL.EMP.VULN.ZS",  # Vulnerable employment (% of total employment)
+  start = 1991,
+  end = 2023
+)
+
+# 3. TOTAL UNEMPLOYMENT (% of labour force) 
+unemployment <- WDI(
+  country = countries,
+  indicator = "SL.UEM.TOTL.ZS",  # Unemployment (% of total labour force)
+  start = 1991,
+  end = 2023
+)
+
+# 4. EXCESSIVE WORKING HOURS (weekly average)
+excessive_hours <- WDI(
+  country = countries,
+  indicator = "JI.TLF.48UP.TM.ZS",
+  start = 1991,
+  end = 2023
+)
+
+# 5. AVERAGE WORKING HOURS (weekly average) 
+avg_hours <- WDI(
+  country = countries,
+  indicator = "JI.TLF.1564.WK.TM",  # Average weekly working hours, aged 15–64
+  start = 2008,
+  end = 2023
+)
+
+
+```
+
+```{r}
+# 1. ECONOMIC PRODUCTIVITY (since 1960)
+latest_year <- max(gdp_productivity$year, na.rm = TRUE)
+
+label_df <- gdp_productivity %>%
+  filter(year == latest_year) %>%
+  group_by(country) %>%
+  summarise(
+    year = max(year),
+    gdp = SL.GDP.PCAP.EM.KD[which.max(year)]
+  )
+
+ggplot(gdp_productivity, aes(x = year, y = SL.GDP.PCAP.EM.KD, group = country)) +
+  geom_line(data = filter(gdp_productivity, country != "Bangladesh"),
+            color = "gray70", size = 0.8, alpha = 0.8) +
+  geom_line(data = filter(gdp_productivity, country == "Bangladesh"),
+            color = "#d73027", size = 1.2) +
+  geom_text_repel(data = label_df,
+                  aes(label = country, x = year, y = gdp),
+                  size = 3, hjust = 0, direction = "y",
+                  segment.color = NA,
+                  box.padding = 0.3,
+                  max.overlaps = Inf) +
+  scale_x_continuous(limits = c(1990, latest_year + 5),
+                     breaks = c(1990, 2000, 2013, 2023)) +
+  labs(
+    title = "GDP per Employee",
+    x = "Year", y = "GDP per Employee",
+    caption = "Source: World Development Indicators (WDI)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.caption = element_text(size = 9, hjust = 0),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 9)
+  )
+
+```
+
+Bangladesh has experienced sustained growth in GDP per employee over the
+past three decades, gradually closing the gap with other developing
+countries. However, a significant divide remains when compared with
+advanced economies. This highlights that, while economic output per
+worker has improved, it is still far from reaching the levels of
+industrialized countries.
+
+```{r}
+# 2. VULNERABLE EMPLOYMENT (% of total employment)
+label_vuln <- vulnerable_employment %>%
+  group_by(country) %>%
+  filter(year == max(year)) %>%
+  ungroup()
+
+ggplot(vulnerable_employment, aes(x = year, y = SL.EMP.VULN.ZS, group = country)) +
+  geom_line(data = filter(vulnerable_employment, country != "Bangladesh"),
+            color = "gray70", size = 0.8, alpha = 0.8) +
+  geom_line(data = filter(vulnerable_employment, country == "Bangladesh"),
+            color = "#d73027", size = 1.2) +
+  geom_text_repel(data = label_vuln,
+                  aes(label = country),
+                  color = "black", size = 3, hjust = 0, direction = "y",
+                  segment.color = NA, box.padding = 0.3, max.overlaps = Inf) +
+  scale_x_continuous(limits = c(1990, 2025), breaks = c(1995, 2005, 2015, 2023)) +
+  labs(
+    title = "Vulnerable Employment (% of total employment)",
+    subtitle = "Bangladesh vs other countries",
+    x = "Year", y = "%",
+    caption = "Source: World Development Indicators (WDI)"
+  ) +
+  theme_minimal()
+
+```
+
+Despite economic advances, the proportion of workers in vulnerable
+employment in Bangladesh remains among the highest globally, especially
+compared to industrialized economies. Although there has been a gradual
+reduction since the 1990s, the most recent figures still indicate
+widespread structural precariousness. This trend suggests that much of
+the workforce continues to operate in insecure, low-protection jobs.
+
+```{r}
+# 3. TOTAL UNEMPLOYMENT (% of labour force) 
+label_df <- unemployment %>%
+  group_by(country) %>%
+  filter(year == max(year)) %>%
+  ungroup()
+
+
+ggplot(unemployment, aes(x = year, y = SL.UEM.TOTL.ZS, group = country)) +
+  geom_line(data = filter(unemployment, country != "Bangladesh"),
+            color = "gray70", size = 0.8, alpha = 0.8) +
+  geom_line(data = filter(unemployment, country == "Bangladesh"),
+            color = "#d73027", size = 1.2) +
+  geom_text_repel(data = label_df,
+                  aes(label = country),
+                  size = 3, hjust = 0, direction = "y",
+                  segment.color = NA,
+                  box.padding = 0.3,
+                  max.overlaps = Inf) +
+  scale_x_continuous(limits = c(1990, 2025),
+                     breaks = c(1991, 2000, 2010, 2023)) +
+  labs(
+    title = "Unemployment Rate (% of Total labour Force)",
+    subtitle = "Bangladesh vs other countries",
+    x = "Year", y = "Unemployment (%)",
+    caption = "Source: World Development Indicators (WDI)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.caption = element_text(size = 9, hjust = 0),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 9)
+  )
+```
+
+Bangladesh’s unemployment rate is relatively moderate and displays less
+volatility than in some European countries. However, this should be
+interpreted in light of the country’s high rate of vulnerable employment
+and informal labour, which can mask underlying underemployment or hidden
+unemployment.
+
+```{r}
+# 4. EXCESSIVE WORKING HOURS (weekly, % working ≥48h/week)
+excessive_hours_summary <- excessive_hours %>%
+  group_by(country) %>%
+  summarise(mean_excessive = mean(JI.TLF.48UP.TM.ZS, na.rm = TRUE)) %>%
+  filter(!is.na(mean_excessive)) %>%
+  mutate(color = ifelse(country == "Bangladesh", "#d73027", "gray70"))
+
+ggplot(excessive_hours_summary, aes(x = reorder(country, mean_excessive), y = mean_excessive, fill = color)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Average % of Workers with ≥48h/Week (2008–2023)",
+    subtitle = "Excessive Working Hours by Country",
+    x = "Country",
+    y = "Average % of Workers",
+    caption = "Source: World Development Indicators (WDI)"
+  ) +
+  scale_fill_identity() +
+  theme_minimal() +
+  theme(
+    plot.caption = element_text(size = 9, hjust = 0),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 9)
+  )
+
+```
+
+Bangladesh is among the countries with the highest percentage of workers
+exceeding 48 hours per week, second only to India within the group
+analyzed. This prevalence of long working hours is not an isolated or
+short-term issue but reflects a persistent and systemic trait of the
+labour market.
+
+```{r}
+# 5. AVERAGE WORKING HOURS (weekly average) 
+avg_hours_summary <- avg_hours %>%
+  group_by(country) %>%
+  summarise(mean_hours = mean(JI.TLF.1564.WK.TM, na.rm = TRUE)) %>%
+  filter(!is.na(mean_hours)) %>%
+  mutate(color = ifelse(country == "Bangladesh", "#d73027", "gray70"))
+
+
+ggplot(avg_hours_summary, aes(x = reorder(country, mean_hours), y = mean_hours, fill = color)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Average Weekly Working Hours by Country (2008–2023)",
+    x = "Country",
+    y = "Average Weekly Hours",
+    caption = "Source: World Development Indicators (WDI)"
+  ) +
+  scale_fill_identity() +
+  theme_minimal()
+```
+
+The country also ranks among the global leaders in average weekly
+working hours, reinforcing the view that economic gains have come
+largely through intensive labour rather than improvements in job quality
+or working time reduction.
+
+The analysis clearly demonstrates that Bangladesh’s economic growth has
+not been matched by a proportional improvement in labour conditions.
+Despite the increases in productivity, structural precariousness,
+intense productivity demands, and limited redistribution of value
+persist. The indicators developed in this study offer a sharper lens for
+understanding these internal tensions, revealing that the current growth
+model remains grounded in intensive, low-compensation labour.
+
+Furthermore, comparative macro-level data reinforce these findings from
+a structural perspective, Bangladesh consistently registers some of the
+highest levels of vulnerable employment and average weekly working
+hours. The fact that excessive working time persists at such a scale
+confirms that these microlevel patterns are not isolated phenomena but
+rather part of a broader systemic reality.
+
+### Feature Engineering
+
+1**.labour Exploitation Index:** Measures the degree to which work
+exceeds the normal planned time (normal_time). The index takes into
+account three factors:
+
+-   Overtime worked (over_time)
+
+-   Economic incentives, weighted (divided by 10 to align with other
+    scales)
+
+-   Number of style changes, which add organizational and adaptive
+    workload (weighted by 15)
+
+This approach draws on established methodologies in the labour studies
+literature. For example, Chan and Siu (2010) examined the interaction of
+overtime and incentive systems in Chinese export factories as mechanisms
+of industrial exploitation, while Patnaik (1972) developed a composite
+index for class analysis in agriculture based on the balance of labour
+provided and received. Although the formula used here is original, it is
+directly inspired by these works, which combine workload, overtime, and
+compensation to operationalize exploitation.
+
+This produces a proportion that reflects how much “extra” work is
+demanded of the worker compared to the planned work. The closer the
+index is to 1, the higher the degree of labour exploitation in terms of
+extra effort.
+
+```{r}
+garment_df <- garment_df %>%
+  mutate(
+    normal_time = smv * no_of_workers,
+    labour_exploitation_index = (over_time + incentive/10 + no_of_style_change*15) / 
+                                (over_time + normal_time + incentive/10 + no_of_style_change*15)
+  )
+
+
+ggplot(garment_df, aes(x = labour_exploitation_index)) +
+  geom_histogram(bins = 30, fill = "#e45756", color = "white", alpha = 0.8) +
+  labs(
+    title = "Distribution of the labour Exploitation Index",
+    x = "labour Exploitation Index",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+This histogram shows a **strong right skew** in the distribution, with
+most cases concentrated between **0.85 and 1**, and many observations
+exactly at **1.0**. This indicates that in most cases, **the normal
+working time (`SMV x workers`)** represents only a small portion
+compared to additional time (overtime, style changes, and incentives).
+
+**2.Idle rate**
+
+This metric represents the proportion of inactive time relative to the
+total time available for production, including:
+
+-   Idle time (`idle_time`)
+
+-   Normal time estimated for the task (`smv`)
+
+-   Overtime (`over_time`)
+
+It serves as an indicator of temporal efficiency, useful for identifying
+bottlenecks, poor planning, or inefficient time management. This metric
+is widely recognized in industrial engineering and management accounting
+as a key indicator of resource utilization and operational efficiency.
+Ahn et al. (2013), for example, used the idle ratio to evaluate
+equipment performance in construction projects
+
+```{r}
+garment_df <- garment_df %>%
+  mutate(idle_ratio = idle_time / (idle_time + smv + over_time))
+
+ggplot(filter(garment_df, idle_time > 0.0), aes(x = idle_ratio)) +
+  geom_histogram(bins = 30, fill = "#fc8d59", color = "white") +
+  labs(
+    title = "Idleness Rate (only cases with idle_time > 0)",
+    x = "Idle Ratio",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+```
+
+The distribution shows that even among the few cases where idle time is
+recorded, most have an extremely low idleness rate (close to 0). Only a
+few records reach higher values (above 0.2 or 0.3), but these are
+exceptional. In conclusion, idleness is very rare, and when it does
+occur, it represents a small portion of the total time. This also
+reinforces what was observed in the correlation analysis: any occurrence
+of idleness negatively impacts productivity, even if it happens
+infrequently.
+
+**3.Surplus Value Rate:**
+
+This variable is inspired by the Marxist concept of surplus value,
+adapted to the context of labour productivity data. It aims to measure
+how much “apparent surplus value” a worker generates, calculated as:
+
+-   The value produced (`actual_productivity * smv`)
+
+-   Plus the unplanned extra work (`over_time`)
+
+-   Minus the extra remuneration received (incentives divided by 10 as
+    an approximate scale)
+
+All of this is compared to the necessary work (`smv * no_of_workers`) to
+obtain a relative rate of value extraction.
+
+This operationalization closely follows Marx’s original formulation of
+the surplus value rate as the key measure of exploitation (Marx, 1867),
+and finds contemporary application in case studies such as the
+Tricontinental Institute’s (2019) analysis of the iPhone production
+chain. The metric questions whether incentives truly compensate for the
+extra effort or if they mask unpaid labour. It is particularly relevant
+in work environments where bonuses may not fully reflect the actual
+effort.
+
+```{r}
+# Calculate adjusted surplus value rate
+garment_df <- garment_df %>%
+  mutate(
+    necessary_labour = smv * no_of_workers,
+    apparent_surplus_value = (over_time + (actual_productivity * smv) - incentive / 10),
+    adjusted_surplus_rate = apparent_surplus_value / necessary_labour
+  )
+
+# Histogram of the adjusted surplus value rate
+ggplot(garment_df, aes(x = adjusted_surplus_rate)) +
+  geom_histogram(fill = "#d73027", bins = 30, color = "white") +
+  labs(
+    title = "Distribution of the Adjusted Surplus Value Rate",
+    x = "Surplus Value Rate (adjusted by incentive)",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+# Relationship between incentive and surplus value
+ggplot(garment_df, aes(x = incentive, y = adjusted_surplus_rate, color = department)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  scale_color_manual(values = my_palette) +
+  labs(
+    title = "Relationship Between Incentive and Adjusted Surplus Value Rate",
+    x = "Incentive (BDT)",
+    y = "Adjusted Surplus Value Rate"
+  ) +
+  theme_minimal()
+
+```
+
+The histogram shows a strongly right-skewed distribution, with most
+values concentrated between 0 and 50, though some cases reach very high
+values, even over 200. This indicates that, in most observations, the
+surplus value generated, that is, the value produced beyond the
+necessary work, is several times higher than the effort estimated in the
+`SMV` for each worker. In conclusion, most workers generate more value
+than they are compensated for (even adjusting for incentives), pointing
+to significant surplus value extraction in the observed production
+system.
+
+The other graph reveals a negative trend between economic incentives and
+the adjusted surplus value rate: as incentives increase, the relative
+surplus value generated by workers tends to decrease. This relationship
+is especially visible in the finishing department, where higher
+incentives seem to act as a compensatory mechanism for the additional
+effort, thus reducing relative exploitation.
+
+By contrast, in the sewing department, incentives are notably lower and
+show very little variation. As a result, their impact on surplus value
+is practically negligible. This suggests that in this sector, work is
+more intensive and less compensated, maintaining high levels of surplus
+value despite the low level of incentives offered.
+
+### Outliers
+
+To better understand the distribution and variability of the numeric
+variables in the dataset, an outlier analysis was performed using
+boxplots. 
+
+```{r}
+# For easier plotting
+garment_long <- garment_df %>%
+  pivot_longer(cols = where(is.numeric), names_to = "variable", values_to = "value")
+
+# Create boxplots to detect outliers
+ggplot(garment_long, aes(x = variable, y = value)) +
+  geom_boxplot(outlier.color = "red", fill = "#fee08b", alpha = 0.6) +
+  coord_flip() + 
+  labs(title = "Outlier Detection in Numeric Variables",
+       x = "Variable", y = "Value") +
+  theme_minimal()
+
+
+```
+
+To facilitate comparison across variables with different scales, all
+numeric features were standardized and visualized using boxplots. This
+allows for a clearer detection of outliers and variance differences,
+supporting future decisions regarding feature selection, normalization,
+or transformation before modelling.
+
+```{r}
+# For easier plotting
+garment_long_scaled <- garment_df %>%
+  dplyr::select(where(is.numeric)) %>%
+  mutate(across(everything(), scale)) %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "value")
+
+# Create boxplots to detect outliers with standardized variables
+ggplot(garment_long_scaled, aes(x = variable, y = value)) +
+  geom_boxplot(outlier.color = "red", fill = "#fee08b", alpha = 0.6) +
+  coord_flip() +
+  labs(title = "Boxplots",
+       x = "Variable", y = "Standardized Value") +
+  theme_minimal()
+
+```
+
+The analysis of outliers through boxplots reveals that several numeric
+variables in the dataset show a significant presence of outliers,
+especially those related to additional effort and workload, such as
+`wip`, `normal_time`, `over_time`, `incentive`, `idle_time`. These
+variables display high dispersion and the presence of extreme values,
+which could negatively impact future analyses and models if not
+addressed.
+
+In contrast, variables such as `actual_productivity`,
+`targeted_productivity`, `smv`, `no_of_workers`, and
+`labour_exploitation_index` present more controlled distributions, with
+few or no significant outliers.
+
+Since I do not want to reduce the number of observations or discard
+valuable data, I opt for an approach of transformation and recoding of
+outliers, rather than removing them.
+
+-   **Logarithmic transformations (`log1p`)** on strongly skewed
+    variables (`wip`, `over_time`, `incentive`) to reduce the magnitude
+    of extreme values and improve the symmetry of their distributions.
+
+<!-- -->
+
+-   **Winsorization of extreme values** in `apparent_surplus_value` and
+    `adjusted_surplus_rate`, limiting values below the 1st percentile
+    and above the 99th percentile. This allows for retaining all
+    observations while only smoothing the impact of the most extreme
+    values.
+
+<!-- -->
+
+-   **Binarization of idleness variables** (`idle_time`), which mostly
+    had zeros, transforming them into indicators of presence/absence
+    (0/1). This facilitates their incorporation as explanatory variables
+    without introducing noise.
+
+```{r}
+# 1. Log transformation
+garment_df <- garment_df %>%
+  mutate(
+    log_incentive = log1p(incentive),
+    log_wip = log1p(wip),
+    log_over_time = log1p(over_time)
+  )
+
+# 2. Winsorization 
+winsorize <- function(x, lower = 0.01, upper = 0.99) {
+  qnt <- quantile(x, probs = c(lower, upper), na.rm = TRUE)
+  x[x < qnt[1]] <- qnt[1]
+  x[x > qnt[2]] <- qnt[2]
+  return(x)
+}
+
+garment_df <- garment_df %>%
+  mutate(
+    adjusted_surplus_rate_wins = winsorize(adjusted_surplus_rate),
+    apparent_surplus_value = winsorize(apparent_surplus_value)
+  )
+
+
+# 3. Binarization
+garment_df <- garment_df %>%
+  mutate(
+    idle_time_bin = if_else(idle_time > 0, 1, 0))
+
+```
+
+### Feature Selection and Principal Component Analysis
+
+Principal Component Analysis (PCA) is employed as an exploratory tool to
+identify the variables that most significantly contribute to the
+variability within the dataset. PCA allows for dimensionality reduction
+and the discovery of latent patterns, highlighting the variables that
+account for the greatest proportion of the observed variance. This not
+only provides a clearer understanding of the relationships among
+variables but also offers valuable insights for the feature selection
+process.
+
+```{r}
+
+# Selection of numeric variables
+num_vars_final <- c("actual_productivity", "targeted_productivity", 
+                    "smv", "over_time", "incentive", "no_of_style_change", 
+                    "no_of_workers", "log_incentive", "log_wip", 
+                    "log_over_time", "adjusted_surplus_rate_wins", 
+                    "apparent_surplus_value", "idle_time_bin", 
+                    "labour_exploitation_index", 
+                    "idle_ratio")
+
+data_pca <- garment_df %>%
+  dplyr::select(all_of(num_vars_final)) %>%
+  na.omit()  
+
+# Scaling 
+data_scaled <- scale(data_pca)
+
+# PCA 
+pca_result <- prcomp(data_scaled, center = TRUE, scale. = TRUE)
+
+# Explained variance 
+summary(pca_result)  
+
+# Scree plot 
+var_explained <- pca_result$sdev^2 / sum(pca_result$sdev^2)
+var_cumulative <- cumsum(var_explained)
+
+scree_df <- data.frame(
+  PC = 1:length(var_explained),
+  Variance = var_explained,
+  Cumulative_Variance = var_cumulative
+)
+
+ggplot(scree_df, aes(x = PC, y = Cumulative_Variance)) +
+  geom_line(color = "#f46d43") +  
+  geom_point(color = "#d73027") +  
+  geom_hline(yintercept = 0.8, linetype = "dashed", color = "grey") +
+  theme_minimal() +
+  labs(title = "Cumulative Variance by Principal Components",
+       x = "Principal Component",
+       y = "Cumulative Variance")
+
+
+
+```
+
+The PCA analysis shows that the first three principal components capture
+more than 60% of the variance in the data (PC1: 32%, PC2: 16%, PC3:
+13%). Beyond PC7, each additional component adds only a small portion of
+variance. This suggests that dimensionality can be reduced to 6 or 7
+principal components while still retaining most of the variance in the
+dataset.
+
+For further information of variables importances:
+
+```{r}
+# Loadings 
+loadings <- pca_result$rotation 
+
+# check the absolute loadings in PC1 and PC2
+abs_loadings <- abs(loadings[, c("PC1", "PC2")])
+
+# Sum importance in PC1 + PC2
+importance_total <- rowSums(abs_loadings)
+
+# Create an ordered dataframe
+importance_df <- data.frame(
+  Variable = rownames(abs_loadings),
+  Importance = importance_total
+) %>%
+  arrange(desc(Importance)) 
+
+print(importance_df)
+
+```
+
+The PCA analysis identifies the variables with the most significant
+contributions to the first two principal components. Among them, several
+stand out as **highly important** due to their strong influence on the
+overall variance structure: apparent_surplus_value_wins (0.577),
+over_time (0.569), idle_time_bin (0.536), idle_men_bin (0.536),
+log_over_time (0.531), and labour_exploitation_index (0.529).
+
+Other variables demonstrate a **medium-high contribution**, also playing
+a crucial role in explaining the dataset’s variability: no_of_workers
+(0.469), smv (0.462), adjusted_surplus_rate_wins (0.417), and idle_ratio
+(0.415).
+
+Given the size and complexity of the dataset, as well as the choice of
+modelling algorithms, a formal multicollinearity assessment, such as
+calculating the variance inflation factor (VIF) was ultimately not
+performed. 
+This decision is supported by the use of Random Forest and
+XGBoost, well-known for their robustness to multicollinearity. These algorithms are capable of
+effectively handling correlated predictors by reducing their influence
+during the training process. As a result, even in the presence of
+correlated variables, the models can still provide stable and reliable
+predictions without the need for explicit collinearity diagnostics.
+
+#### Final selection
+
+Considering the classification problem at hand, determining whether
+teams achieve their expected productivity, combined with the correlation
+matrix, PCA and empirical performance in predictive modelling the
+following variables are selected:
+
+Variables directly related to productivity outcomes, such as
+actual_productivity, targeted_productivity or
+adjusted_surplus_rate_wins, are not included as features in the
+predictive models, as they are conceptually and statistically linked to
+the target variable. Including them would lead to information leakage
+and artificially inflated performance metrics, compromising the validity
+of the results.
+
+The final set of predictors includes:
+
+-   `date:` Captures potential temporal patterns or seasonality that may
+    influence productivity.
+
+-   `log_over_time:` Reflects the accumulated overtime in a non-linear
+    scale, serving as an indicator of workload pressure.
+
+-   `department:` Distinguishes between main operational units with
+    different organizational and productivity dynamics.
+
+-   `smv` (Standard Minute Value): Proxy for task complexity and
+    required planning.
+
+-   `no_of_style_change:` Measures workflow variability and the
+    operational flexibility required.
+
+-   `log_incentive:` Represents the magnitude of economic incentives,
+    consistently the most influential predictor.
+
+-   `log_wip:` Reflects the logarithm of Work in Progress, providing
+    insight into workflow bottlenecks and production flow.
+
+-   `no_of_workers:` Captures team size, a key determinant of
+    productivity and organizational structure.
+
+-   `idle_ratio:` Indicates the proportion of idle time relative to
+    total available time, highlighting inefficiencies and potential
+    bottlenecks.
+
+-   `achieves_target:` The target variable, indicating whether the team
+    met the expected productivity.
+
+```{r}
+final_vars <- garment_df %>%  dplyr::select("date","log_over_time", "department",
+                 "smv", "no_of_style_change", "log_incentive", "log_wip",
+                 "achieves_target", "no_of_workers", "idle_ratio") 
+```
+
+```{r}
+vars_df <- data.frame(
+  Variable = c(
+    "date", "log_over_time", "department", "smv", "no_of_style_change",
+    "log_incentive", "log_wip", "no_of_workers", "idle_ratio", "achieves_target"
+  ),
+  Description = c(
+    "Observation date (captures temporal effects and seasonality)",
+    "Log-transformed accumulated overtime (workload indicator)",
+    "Department (categorical: sewing or finishing)",
+    "Standard Minute Value (task complexity and planning)",
+    "Number of style changes (workflow variability)",
+    "Log-transformed economic incentives (motivation/proxy for bonuses)",
+    "Log-transformed Work In Progress (bottlenecks/flow indicator)",
+    "Number of workers in the team (team size/structure)",
+    "Proportion of idle time over total available time (inefficiency indicator)",
+    "Target variable: did the team achieve expected productivity? (1=Yes, 0=No)"
+  ),
+  Type = c(
+    "Date", "Numeric (log)", "Categorical", "Numeric", "Numeric",
+    "Numeric (log)", "Numeric (log)", "Numeric", "Numeric", "Binary"
+  ),
+  stringsAsFactors = FALSE
+)
+
+ft_vars <- flextable(vars_df) %>%
+  set_header_labels(
+    Variable = "Variable",
+    Description = "Description",
+    Type = "Type"
+  ) %>%
+  add_header_lines("Description of Variables Used in Final Predictive modelling") %>%
+  autofit() %>%
+  align(align = "left", part = "all") %>%
+  theme_box()
+
+ft_vars
+```
+
+
+# Models
+
+### XGboost
+
+#### Cross Validation
+
+Group-based cross-validation based on the team variable is not performed
+because the team identifier does not correspond to a consistent,
+well-defined grouping across the dataset. As demonstrated in the
+exploratory analysis, teams are not present for the same number of days,
+and team composition can vary over time within each department.
+Therefore, stratifying or grouping by team during cross-validation would
+not ensure meaningful separation of observations or mitigate data
+leakage, as teams do not represent stable, temporally coherent entities.
+
+Instead, a temporal split is applied to the dataset, preserving the
+chronological order of observations. This approach avoids look-ahead
+bias and more accurately simulates a real-world forecasting scenario,
+where only information available up to a given point in time can be used
+for prediction. By respecting the temporal structure, the analysis
+remains robust and better reflects the operational context of
+productivity forecasting in a manufacturing environment.
+
+The data is split as follows:
+
+-   Training set: 2015-01-01 to 2015-02-15
+
+-   Validation set: 2015-02-16 to 2015-02-28
+
+-   Test set: 2015-03-01 to 2015-03-11
+
+```{r}
+set.seed(432)
+# Split by time periods
+train_data <- final_vars %>% filter(date >= as.Date("2015-01-01") & date <= as.Date("2015-02-15"))
+val_data   <- final_vars %>% filter(date >= as.Date("2015-02-16") & date <= as.Date("2015-02-28"))
+test_data  <- final_vars %>% filter(date >= as.Date("2015-03-01") & date <= as.Date("2015-03-11"))
+
+# Show the results
+cat(nrow(train_data), "train\n")
+cat(nrow(val_data),   "validation\n")
+cat(nrow(test_data),  "test\n")
+table(train_data$achieves_target)
+table(val_data$achieves_target)
+table(test_data$achieves_target)
+```
+
+To develop the predictive model, I first transformed the datasets
+(train, validation, and test) into matrices suitable for XGBoost,
+excluding the target variable and the date. Next, I created xgb.DMatrix
+objects, which are optimized data structures for training with XGBoost,
+for each subset. I then defined a grid of hyperparameters to tune: the
+learning rate (eta), maximum tree depth (max_depth), and the number of
+boosting rounds (nrounds). 
+
+```{r}
+set.seed(123)
+# Prepare matrices for XGBoost
+x_train <- model.matrix(achieves_target ~ . -1 -date, data = train_data)
+y_train <- train_data$achieves_target
+
+x_val <- model.matrix(achieves_target ~ . -1 -date, data = val_data)
+y_val <- val_data$achieves_target
+
+x_test <- model.matrix(achieves_target ~ . -1 -date, data = test_data)
+y_test <- test_data$achieves_target
+
+dtrain <- xgb.DMatrix(data = x_train, label = y_train)
+dval <- xgb.DMatrix(data = x_val, label = y_val)
+dtest <- xgb.DMatrix(data = x_test, label = y_test)
+
+# Define parameter grid and train models
+param_grid <- expand.grid(
+  eta = c(0.01, 0.1),
+  max_depth = c(3, 6),
+  nrounds = c(100, 200)
+)
+
+scale_pos_weight <- sum(y_train == 0) / sum(y_train == 1)
+
+```
+
+For each combination of hyperparameters, an XGBoost model is trained
+using the training set. Its performance is evaluated on the validation
+set by calculating the Area Under the Curve (AUC). The model that
+achieves the highest AUC on the validation set is selected as the final
+model.
+
+```{r}
+best_auc <- 0
+best_model <- NULL
+
+for(i in 1:nrow(param_grid)) {
+  param <- list(
+    objective = "binary:logistic",
+    eta = param_grid$eta[i],
+    max_depth = param_grid$max_depth[i],
+    eval_metric = "auc"
+  )
+  
+  model <- xgb.train(
+    params = param,
+    data = dtrain,
+    nrounds = param_grid$nrounds[i],
+    watchlist = list(val = dval),
+    verbose = 0
+  )
+  
+  pred_val <- predict(model, dval)
+  auc <- roc(y_val, pred_val)$auc
+  
+  if(auc > best_auc) {
+    best_auc <- auc
+    best_model <- model
+  }
+}
+```
+
+This procedure ensures that the model is not only trained on historical
+data but is also optimized and validated on a temporally subsequent set,
+preventing information leakage. The use of a grid search for
+hyperparameter tuning a make the approach robust By optimizing for AUC on the validation set, I
+prioritize the model’s ability to distinguish between classes, which is
+crucial given the imbalance in the outcome variable.
+
+#### Test and Evaluation
+
+Now, the test set prediction and threshold optimization
+
+```{r}
+set.seed(134)
+# Predice en test
+pred_test <- predict(best_model, dtest)
+cat("Length pred_test:", length(pred_test), "\n")
+
+# Calculate the optimal threshold using ROC
+roc_val <- roc(y_val, predict(best_model, dval))
+thr_opt <- coords(roc_val, "best", ret = "threshold")[[1]]
+
+cat("Optimal threshold:", thr_opt, "\n") 
+
+# Prediction
+pred_class_opt <- ifelse(pred_test > thr_opt, 1, 0)
+
+# Matrix
+confusionMatrix(
+  factor(pred_class_opt, levels = c(0, 1)), 
+  factor(y_test, levels = c(0, 1)), 
+  positive = "1"   
+)
+
+```
+
+To optimize classification performance, the optimal decision threshold was determined using the ROC curve on the validation set. The “best” threshold maximizes both sensitivity and specificity, and this value was then applied to the test set probabilities to generate the final binary predictions.
+
+The Random Forest model was evaluated on the test set using this optimized threshold, with all metrics interpreted according to the positive class (“1” = achieving the productivity target):
+
+- Sensitivity (Recall for class 1) is high at 0.814, indicating that the model correctly identifies 81.4% of the teams that meet or exceed the productivity target. This is crucial for ensuring that the majority of successful teams are recognized as such.
+
+- Specificity (Recall for class 0) is also strong at 0.825, meaning the model correctly identifies 82.5% of the teams that do not achieve the productivity target. This demonstrates the model’s ability to detect underperforming teams and avoid false positives.
+
+- Balanced accuracy is 0.820, reflecting robust overall performance in the presence of class imbalance. This metric ensures that both classes are treated fairly and that model performance is not inflated by the majority class.
+
+- Overall accuracy stands at 0.816, indicating that just over 81% of all teams are correctly classified, regardless of class.
+
+- The Kappa statistic of 0.52 suggests a moderate agreement between the model predictions and the true class labels, above what would be expected by chance.
+
+- Positive Predictive Value (Precision for class 1) is very high (0.952), meaning that when the model predicts a team will achieve the productivity target, it is correct more than 95% of the time.
+
+- Negative Predictive Value (for class 0) is 0.51, indicating that among teams predicted not to achieve the target, about 51% truly do not achieve it. This is expected in the context of an imbalanced dataset.
+
+In summary, the model demonstrates excellent reliability in predicting which teams will meet productivity expectations and robust performance in identifying underperforming teams. The high precision for the positive class is particularly relevant for applications focused on recognizing high-performing teams, while balanced accuracy confirms that both classes are well captured by the model.
+
+
+
+#### Variable Importance
+
+```{r}
+# Variable Importance:
+importance_matrix <- xgb.importance(model = best_model)
+print(importance_matrix)
+xgb.plot.importance(importance_matrix, top_n = 10)
+```
+
+The variable importance analysis based on the XGBoost model shows that
+**log_wip** is the most influential predictor for team productivity
+achievement, closely followed by **log_incentive**. Both variables
+together account for the majority of the model's explanatory power.
+**SMV** is also highly important, indicating that teams working on more
+complex or time-intensive tasks have different probabilities of meeting
+their targets.
+
+Other features, such as **log_over_time** (extra hours worked) and
+**no_of_workers** (team size), show moderate influence, suggesting they
+play a supporting role in determining productivity outcomes. Variables
+like **department** and **no_of_style_change** (the number of style
+changes) have relatively low importance, indicating that differences
+between departments or frequent style changes contribute less to the
+final classification.
+
+```{r}
+#SHAP
+shap_values <- shap.values(xgb_model = best_model, X_train = x_train)
+shap_long <- shap.prep(shap_contrib = shap_values$shap_score, X_train = x_train)
+shap.plot.summary(shap_long)
+```
+
+The SHAP value summary plot confirms these findings:
+
+-   **log_incentive** and **log_wip** both display wide ranges of SHAP
+    values, highlighting their strong and non-linear influence on the
+    prediction. Higher values of these variables are strongly associated
+    with an increased probability of achieving the productivity target.
+
+-   **SMV** again appears as a relevant factor, supporting the
+    conclusion that both economic and organizational factors drive
+    productivity outcomes.
+
+```{r}
+#Department comparison
+departments <- unique(test_data$department)
+auc_deps <- sapply(departments, function(dep) {
+  idx <- which(test_data$department == dep)
+  y_dep <- y_test[idx]
+  pred_dep <- pred_test[idx]
+  roc(y_dep, pred_dep)$auc
+})
+
+df_auc <- data.frame(
+  Departament = departments,
+  AUC = round(auc_deps, 3)
+)
+print(df_auc)
+
+```
+
+The predictive and explanatory power of the model differs between
+departments:
+
+-   **Sweing department**: The model achieves an AUC of 0.880, which is
+    considered very good, indicating high reliability in identifying
+    teams likely to achieve or miss their targets.
+
+-   **Finishing department**: The AUC drops to 0.819, which is still
+    good, but suggests more variability or unaccounted factors affecting
+    performance.
+
+Overall, the results make clear that **work in progress (WIP) and
+economic incentives are the most critical drivers of productivity
+achievement in this factory context**, closely followed by task
+complexity (SMV).
+
+### Random Forest
+
+To cross-check and validate the robustness of the predictions obtained
+with XGBoost, an alternative model based on Random Forest was trained.
+The aim is to see whether this method can improve the predictive
+capacity in classifying cases where expected productivity is not
+achieved (class 0). 
+
+```{r}
+set.seed(111)
+# Prepare data for Random Forest
+train_data_rf <- train_data 
+val_data_rf   <- val_data  
+test_data_rf  <- test_data 
+
+# Ensure the target variable is a factor
+train_data_rf$achieves_target <- factor(train_data_rf$achieves_target, levels = c(0, 1))
+val_data_rf$achieves_target   <- factor(val_data_rf$achieves_target, levels = c(0, 1))
+test_data_rf$achieves_target  <- factor(test_data_rf$achieves_target, levels = c(0, 1))
+
+# Calculate inverse class weights 
+class_weights <- as.numeric(table(train_data_rf$achieves_target))
+names(class_weights) <- c(0,1)
+classwt = c('0' = 1/class_weights[1], '1' = 1/class_weights[2])
+
+# Alternatively, inverse proportions
+tbl <- table(train_data_rf$achieves_target)
+classwt <- c("0" = as.numeric(tbl["1"]) / as.numeric(tbl["0"]), "1" = 1)
+print(classwt)
+
+# Train the Random Forest model
+rf_model <- randomForest(
+  achieves_target ~ . -date,
+  data = train_data_rf,
+  ntree = 500,
+  mtry = floor(sqrt(ncol(train_data_rf) - 2)),
+  importance = TRUE
+)
+
+# Probability predictions
+val_prob <- predict(rf_model, val_data_rf, type = "prob")[,2]
+test_prob <- predict(rf_model, test_data_rf, type = "prob")[,2]
+
+# Find optimal threshold on validation set using ROC curve
+roc_val <- roc(as.numeric(as.character(val_data_rf$achieves_target)), val_prob)
+thr_opt <- coords(roc_val, "best", ret = "threshold")
+thr_opt <- as.numeric(thr_opt)
+
+# Final classification on test set using optimal threshold
+test_pred_class <- ifelse(test_prob > thr_opt, 1, 0)
+cm_rf <- confusionMatrix(
+  factor(test_pred_class, levels = c(0,1)),
+  factor(as.numeric(as.character(test_data_rf$achieves_target)), levels = c(0,1)),
+  positive = "1"  
+)
+print(cm_rf)
+
+# Calculate AUC on test set
+auc <- roc(as.numeric(as.character(test_data_rf$achieves_target)), test_prob)
+print(auc)
+
+```
+
+The model demonstrates a particularly strong ability to correctly identify teams that achieve their productivity goals (high sensitivity and precision for class 1), which is valuable for recognizing and reinforcing effective practices. The balanced accuracy and high AUC values confirm the practical robustness of the model, while the slightly lower specificity reflects the trade-off often encountered in class-imbalanced problems: the priority of early identification of successful teams over minimizing false positives among underperformers.
+
+- Accuracy: 83.0%. The model correctly classifies 83% of all teams, providing a solid overall performance.
+
+- Sensitivity (Recall for class 1): 0.866. The model successfully identifies 86.6% of the teams that achieve their productivity targets, which is crucial for reliably detecting high-performing teams.
+
+- Specificity (Recall for class 0): 0.675. This means that 67.5% of teams that do not achieve the target are correctly identified, which is somewhat lower but still provides useful information for targeting interventions.
+
+- Balanced Accuracy: 0.771. This metric, averaging sensitivity and specificity, ensures that both classes are fairly evaluated even in the presence of class imbalance.
+
+- Positive Predictive Value (Precision for class 1): 0.920. When the model predicts that a team will meet the productivity target, it is correct over 92% of the time.
+
+- Negative Predictive Value (for class 0): 0.54. For teams predicted not to meet the target, just over half are truly underperforming, reflecting the challenge of imbalanced data but still supporting targeted improvement efforts.
+
+- Kappa statistic: 0.49, indicating moderate agreement beyond chance.
+
+- AUC (Area Under the ROC Curve): 0.867, which demonstrates strong overall discriminative capacity and aligns with best practices in binary classification.
+
+Overall, these results validate the Random Forest model as a reliable tool for explaining and predicting productivity achievement, especially from the perspective of recognizing high-performing teams in an industrial context.
+
+#### Variable importance
+
+```{r}
+# Importance
+importance_values <- importance(rf_model)
+print(importance_values)
+ 
+# Data Frame
+var_imp_df <- data.frame(
+  Variable = rownames(importance_values),
+  Importance = importance_values[, "MeanDecreaseGini"]
+)
+var_imp_df <- var_imp_df[order(var_imp_df$Importance, decreasing = TRUE), ]
+
+# Plot
+ggplot(var_imp_df, aes(x = reorder(Variable, Importance), y = Importance)) +
+  geom_bar(stat = "identity", fill = "#c77d42") +
+  coord_flip() +
+  labs(
+    title = "Variable Importance",
+    x = "Variable",
+    y = "Importance"
+  ) +
+  theme_minimal()
+
+```
+
+- log_wip (logarithm of Work in Progress) emerges as the most influential variable, indicating that higher volumes of ongoing work are strongly associated with productivity outcomes. Well-managed WIP is essential for maintaining steady production flow and meeting targets.
+
+- log_incentive also demonstrates high importance, underscoring the decisive impact of economic incentives on team performance. Teams with stronger incentive structures are much more likely to achieve their productivity goals.
+
+- smv (Standard Minute Value), a proxy for task complexity and planning requirements, is another critical predictor. This highlights the role of task difficulty and organization in shaping productivity.
+
+- log_over_time (overtime hours) and no_of_workers (team size) also contribute significantly to the model. Teams with appropriate staffing levels and managed overtime are better positioned to meet targets, although excessive overtime does not always translate into higher performance.
+
+- department displays moderate importance, suggesting that differences in organizational structure or work environment (e.g., sewing vs. finishing departments) have a secondary, yet still relevant, effect on productivity.
+
+- no_of_style_change (workflow variability) and idle_ratio (proportion of idle time) show the lowest importance. This suggests that, within this modelling framework, frequent style changes and minor fluctuations in idle time have limited additional explanatory value.
+
+Overall, the results confirm that productivity achievement is primarily driven by incentive systems, workflow load, and the complexity of tasks, rather than by minor workflow changes or idle time. This variable importance ranking is consistent with the findings from the XGBoost model, reinforcing the robustness of the identified predictors across different modelling approaches.
+
+### Model comparison table
+
+```{r}
+
+
+results <- data.frame(
+  Model            = c("XGBoost", "Random Forest"),
+  Sensitivity_1    = c(0.814, 0.866),  
+  Specificity_1    = c(0.825, 0.675),
+  BalancedAccuracy = c(0.820, 0.771),
+  AUC              = c(0.817, 0.867),
+  Accuracy         = c(0.816, 0.830),
+  Kappa            = c(0.515, 0.494)
+)
+
+results <- results %>% mutate(across(where(is.numeric), ~ round(.x, 2)))
+
+ft <- flextable(results)
+ft <- set_header_labels(
+  ft,
+  Model            = "Model",
+  Sensitivity_1    = "Sensitivity (class 1)",
+  Specificity_1    = "Specificity (class 1)",
+  BalancedAccuracy = "Balanced Accuracy",
+  AUC              = "AUC",
+  Accuracy         = "Accuracy",
+  Kappa            = "Kappa"
+)
+ft <- autofit(ft)
+ft <- add_header_row(ft, values = "Model Comparison Table", colwidths = 7)
+ft
+
+```
+
+Both the XGBoost and Random Forest models demonstrated robust and reliable performance in classifying teams according to whether they achieved their expected productivity targets.
+XGBoost achieved an overall accuracy of 0.82 and a balanced accuracy of 0.82, with sensitivity at 0.81 and specificity at 0.82. The area under the ROC curve (AUC) reached 0.82, confirming strong discriminative power.
+
+Random Forest performed similarly, with an accuracy of 0.83 and a balanced accuracy of 0.77, but achieved a higher sensitivity (0.87), indicating an even greater ability to correctly identify teams that met their productivity targets. However, its specificity was lower (0.68), reflecting a greater likelihood of false positives when predicting successful teams. The AUC for Random Forest was also high (0.87), suggesting excellent overall discrimination between classes.
+
+The high sensitivity of both models means that the vast majority of teams achieving their targets were correctly identified, which is particularly valuable in practical settings where maximising the detection of successful cases is a priority. The slight trade-off in specificity, particularly in the Random Forest model, is acceptable given the emphasis on early detection and intervention for teams at risk of underperformance.
+
+In summary, both machine learning approaches provided highly satisfactory and comparable results. Random Forest stands out for its higher sensitivity, making it especially useful for identifying high-performing teams. XGBoost, meanwhile, achieves slightly better balanced accuracy and specificity, offering a more even classification across both classes.
+
+These findings reinforce the suitability of both algorithms for explanatory analysis in manufacturing environments with complex, imbalanced data. The results are consistent with benchmarks in the academic literature and provide a strong foundation for future interventions and improvements in productivity management.
+
+Several enhancements could be explored in future analyses. First, applying temporal cross-validation for hyperparameter tuning would provide more robust and unbiased performance estimates, especially in time-dependent production environments. Additionally, incorporating new features, such as qualitative variables or external factors, may help explain residual variability in productivity outcomes. Advanced resampling techniques or cost-sensitive learning could further address class imbalance.
+
+A particularly relevant area for improvement concerns the imputation of missing values for key variables such as Work in Progress (WIP, in this case log_wip). As the distribution of the imputed values was not fully aligned with the original, and the proportion of missing values was relatively high, future work could focus on refining the imputation methodology to better preserve the underlying structure of the data and reduce potential biases.
+
+Finally, exploring more complex or hybrid modelling approaches, while maintaining interpretability, may yield additional improvements if larger datasets become available. These enhancements would strengthen the reliability and practical applicability of predictive models for productivity in industrial settings.
+
+# Conclusion
+
+Through a combination of exploratory data analysis and interpretable machine learning models, this study has identified the principal factors underlying team productivity differences in a high-intensity manufacturing environment. Using real-world data from the Bangladeshi garment sector, the analysis provides nuanced insights into how organizational structure, incentive schemes, and operational practices interact to determine whether teams achieve their productivity targets.
+
+To answer the research question, both classical statistical techniques and advanced machine learning algorithms were employed, always maintaining an explanatory focus. Model validation on unseen test data revealed that both XGBoost and Random Forest achieved robust and comparable performance. The best models attained sensitivities for teams achieving the productivity target (class 1) between 81% and 87%, with AUC values around 0.87, which is higher than what is typically reported in the literature for this type of industrial prediction. XGBoost exhibited slightly higher overall accuracy and specificity, while Random Forest demonstrated superior sensitivity, which is especially valuable for reliably identifying high-performing teams.
+
+Variable importance analyses, using both feature importance metrics and SHAP values, consistently highlighted that log_wip (work in progress) and log_incentive (economic incentives) are the most influential predictors of productivity achievement. Teams benefiting from higher economic incentives and better-managed workflows were significantly more likely to meet or exceed productivity targets. SMV (task complexity) also emerged as a key factor, whereas variables such as log_over_time and no_of_style_change played a lesser role, suggesting that overtime and workflow variability alone do not guarantee improved outcomes.
+
+These findings confirm that productivity outcomes in the garment sector are fundamentally shaped by both economic incentives and the organizational configuration of production teams. Larger and well-structured teams with robust incentive systems consistently outperform others, particularly in more mechanized departments. Conversely, teams and departments facing greater operational variability or weaker incentives encounter more challenges in reaching productivity goals. The analysis also shows that even minimal idle time is associated with reduced performance.
+
+this research provides clear and robust answers to the research question and associated hypotheses. Teams that fail to achieve productivity targets are characterized by smaller size, lower incentives, and less consistent organization. Among organizational factors, team size, department, and task complexity all prove to be important, but economic incentives emerge as the most decisive driver. Both hypotheses are confirmed: underperforming teams exhibit distinct organizational and motivational profiles, and the presence of idle time, insufficient incentives, and excessive working hours are all negatively associated with productivity achievement, with incentives standing out as the most critical determinant.
+
+In summary, this study demonstrates that explainable machine learning models can not only classify productivity outcomes with high reliability, but, crucially, also uncover the underlying drivers of performance in complex, real-world manufacturing environments. These insights can directly inform targeted interventions and policy decisions aimed at improving productivity and working conditions in the industry.
+
+# Bibliography
+
+Ahn, C., Lee, S., & Peña-Mora, F. (2013). A case study: Idle time ratio
+for construction equipment. Journal of Construction Engineering and
+Management, 139(5), 572–580.
+
+Balla, I., Rahayu, S., & Jaya Purnama, J. (2021). Garment employee
+productivity prediction using Random Forest. Techno Nusa Mandiri:
+Journal of Computing and Information Technology, 18(1), 49–54.
+
+Chan, J., & Siu, K. (2010). Analyzing exploitation: Excessive overtime
+and piece-rate work in Chinese export factories. Critical Asian Studies,
+42(2), 167–190.
+
+Marx, K. (1867). Capital: A critique of political economy (Vol. I, Ch.
+9). Progress Publishers.
+
+Obiedat, R., & Toubasi, S. (2022). A combined approach for predicting
+employees' productivity based on ensemble machine learning methods.
+Informatica, 46(5), 49–58.
+
+Patnaik, U. (1972). Class differentiation within the peasantry: An
+approach to the analysis of Indian agriculture. Economic and Political
+Weekly, 7(31/33), 1239–1245.
+
+Tricontinental Institute for Social Research. (2019). The rate of
+exploitation: The case of the iPhone.
+
+Abdullah Al Imran, Md Shamsur Rahim, & Tanvir Ahmed. (2021). Mining the
+productivity data of the garment industry. International Journal of
+Business Intelligence and Data Mining, 19(3), 319–342.
